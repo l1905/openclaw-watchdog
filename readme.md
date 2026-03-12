@@ -18,7 +18,10 @@
 | AI 模型不可用 | ❌ 需人工处理 | "模型不存在或已下线，请管理员更换"（附操作步骤） |
 | API Key 失效 | ❌ 需人工处理 | "API Key 无效，请管理员更换"（附操作步骤） |
 | 飞书授权过期 | ❌ 需人工处理 | "飞书授权异常，请管理员重新授权"（附操作步骤） |
+| 会话锁残留 | ✅ 自动 doctor 修复 | "会话文件锁残留，已自动修复。持续出现请检查 AI 服务连接" |
 | 自动重启失败 | ❌ 需人工处理 | "服务中断，自动重启未成功，请联系管理员" |
+| 磁盘空间不足 (>90%) | ❌ 需人工处理 | "磁盘使用率达 XX%，请清理空间"（附排查命令） |
+| 内存不足 (<200MB，仅Linux) | ⚠️ 事前预警 | "可用内存仅剩 XXMB，可能触发 OOM" |
 
 ## 系统要求
 
@@ -41,7 +44,10 @@ curl -O https://raw.githubusercontent.com/l1905/openclaw-watchdog/main/openclaw-
 2. 引导你在飞书群里创建一个通知机器人（有详细步骤说明）
 3. 你只需要把飞书里的 Webhook 地址复制粘贴进来
 4. 脚本会自动发一条测试消息确认连接成功
-5. 自动配置定时检查任务（每分钟检查一次）
+5. 给这个实例起个名字（多台部署时方便区分，默认用主机名）
+6. 自动配置定时检查任务（每分钟检查一次）
+
+> 重新安装时，脚本会检测已有配置并询问是否沿用，直接回车即可保留原有设置。
 
 ### 第 2 步：没有第 2 步
 
@@ -94,6 +100,9 @@ $ bash openclaw-watchdog.sh install
 
   给这个通知群起个名字（方便你记忆，比如「运维群」）: 运维群
 
+  如果你有多台 OpenClaw，给这台起个名字方便区分。
+  实例名称 (回车使用 my-server): 生产-1号
+
 ▶ 第 2 步：安装看门狗
 
   ✅ 脚本已安装到 /root/.openclaw/watchdog/watchdog.sh
@@ -134,10 +143,13 @@ $ bash openclaw-watchdog.sh install
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
   配置信息：
+    实例名称:   生产-1号
     通知群:     运维群
     Webhook:    https://open.feishu.cn/open-apis/bot/v2/hook/xxxxx...
     Gateway端口: 18789
     日志目录:    /root/.openclaw/logs
+    磁盘告警:    >90%
+    内存告警:    <200MB (仅Linux)
 
   运行状态：
     ✅ 定时任务: 运行中（每分钟检查）
@@ -170,7 +182,7 @@ tail -50 ~/.openclaw/watchdog/watchdog.log
 
 机器人出问题时，飞书群会收到一条卡片消息，例如：
 
-> **⚠️ AI 服务额度不足**
+> **[生产-1号] ⚠️ AI 服务额度不足**
 >
 > 机器人使用的 AI 服务**余额不足**，暂时无法回复消息。
 >
@@ -202,7 +214,7 @@ macOS 首次使用 cron 时，可能需要在「系统设置 → 隐私与安全
 
 ### Q: 如何修改通知群？
 
-重新运行安装即可，会覆盖旧配置：
+重新运行安装即可。脚本会检测到已有配置并询问是否沿用，选 `n` 进入全新配置流程：
 
 ```bash
 bash openclaw-watchdog.sh install
@@ -233,6 +245,7 @@ crontab -l | grep -v 'openclaw-watchdog' | crontab -
 - Gateway 重启成功后（清理重启遗留的 session 锁等）
 - 通道异常时（修复可能的配置不一致）
 - 内存溢出重启后（修复可能损坏的状态文件）
+- 检测到会话锁残留时（Agent 卡死或进程异常退出导致锁未释放）
 
 ## 文件说明
 
@@ -241,7 +254,7 @@ crontab -l | grep -v 'openclaw-watchdog' | crontab -
 ```
 ~/.openclaw/watchdog/
 ├── watchdog.sh      # 主脚本
-├── config.sh        # 配置文件（Webhook 地址等）
+├── config.sh        # 配置文件（Webhook、实例名、告警阈值等）
 ├── watchdog.log     # 看门狗自身运行日志
 └── state/           # 告警状态（用于去重）
     ├── alert-down
@@ -259,3 +272,14 @@ crontab -l | grep -v 'openclaw-watchdog' | crontab -
 /tmp/openclaw/
 └── openclaw-YYYY-MM-DD.log   # 应用日志（billing、rate limit、auth 等）
 ```
+
+### 可调整的告警阈值
+
+编辑 `~/.openclaw/watchdog/config.sh`，修改以下字段：
+
+```bash
+DISK_THRESHOLD='90'     # 磁盘使用率超过此值(%)时告警，默认 90
+MEMORY_THRESHOLD='200'  # 可用内存低于此值(MB)时告警，默认 200（仅 Linux）
+```
+
+修改后无需重新安装，下次检查时自动生效。

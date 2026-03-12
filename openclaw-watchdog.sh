@@ -73,6 +73,8 @@ load_config() {
   OPENCLAW_LOG_DIR=""
   NOTIFY_CHAT_NAME=""
   INSTANCE_NAME=""
+  DISK_THRESHOLD=90
+  MEMORY_THRESHOLD=200
   if [ -f "$CONF_FILE" ]; then
     # shellcheck source=/dev/null
     . "$CONF_FILE"
@@ -88,6 +90,8 @@ GATEWAY_PORT='${GATEWAY_PORT}'
 OPENCLAW_LOG_DIR='${OPENCLAW_LOG_DIR}'
 NOTIFY_CHAT_NAME='${NOTIFY_CHAT_NAME}'
 INSTANCE_NAME='${INSTANCE_NAME}'
+DISK_THRESHOLD='${DISK_THRESHOLD}'
+MEMORY_THRESHOLD='${MEMORY_THRESHOLD}'
 EOF
 }
 
@@ -711,6 +715,45 @@ do_check() {
     echo "[$(date '+%H:%M:%S')] 检测到模型不可用"
   fi
 
+  # 3j: Session 文件锁残留（Agent 卡死或进程崩溃后锁未释放）
+  if echo "$recent" | grep -qi 'session file locked'; then
+    echo "[$(date '+%H:%M:%S')] 检测到 session 锁残留，运行 doctor 修复"
+    run_doctor_fix
+    alert_once "session-lock" \
+      "🔒 会话锁异常" \
+      "检测到会话文件锁残留，可能是之前的请求卡死或进程异常退出导致。\n\n系统已自动运行 \`openclaw doctor\` 尝试修复。如果问题持续出现，请联系管理员检查 AI 服务商的连接是否正常。" \
+      "orange"
+    echo "[$(date '+%H:%M:%S')] doctor 修复完成"
+  fi
+
+  # ---- 检查4: 磁盘使用率 ----
+  local disk_usage
+  disk_usage=$(df / | awk 'NR==2 {gsub(/%/,""); print $5}' 2>/dev/null || echo "0")
+  if [ "$disk_usage" -gt "$DISK_THRESHOLD" ] 2>/dev/null; then
+    alert_once "disk" \
+      "💾 磁盘空间不足 (${disk_usage}%)" \
+      "服务器磁盘使用率已达 **${disk_usage}%**，可能导致服务异常。\n\n**请联系管理员清理空间：**\n- 清理日志文件: \`du -sh /tmp/openclaw/ ~/.openclaw/logs/\`\n- 查看磁盘详情: \`df -h\`" \
+      "orange"
+    echo "[$(date '+%H:%M:%S')] 磁盘使用率 ${disk_usage}%"
+  else
+    clear_alert "disk"
+  fi
+
+  # ---- 检查5: 内存可用量（仅 Linux） ----
+  if [ "$OS_TYPE" = "Linux" ]; then
+    local mem_avail_mb
+    mem_avail_mb=$(awk '/MemAvailable/ {printf "%d", $2/1024}' /proc/meminfo 2>/dev/null || echo "")
+    if [ -n "$mem_avail_mb" ] && [ "$mem_avail_mb" -lt "$MEMORY_THRESHOLD" ]; then
+      alert_once "memory" \
+        "🧠 内存不足 (可用 ${mem_avail_mb}MB)" \
+        "服务器可用内存仅剩 **${mem_avail_mb}MB**，可能很快触发 OOM 导致服务崩溃。\n\n**请联系管理员：**\n- 检查是否有异常进程占用内存: \`top -o %MEM\`\n- 考虑增加服务器内存或添加 swap" \
+        "orange"
+      echo "[$(date '+%H:%M:%S')] 可用内存 ${mem_avail_mb}MB"
+    else
+      clear_alert "memory"
+    fi
+  fi
+
   echo "[$(date '+%H:%M:%S')] 检查完成"
 }
 
@@ -739,6 +782,8 @@ do_status() {
   fi
   echo "    Gateway端口: ${GATEWAY_PORT:-$DEFAULT_PORT}"
   echo "    日志目录:    ${OPENCLAW_LOG_DIR:-未设置}"
+  echo "    磁盘告警:    >${DISK_THRESHOLD}%"
+  echo "    内存告警:    <${MEMORY_THRESHOLD}MB (仅Linux)"
   echo ""
 
   echo "  运行状态："
@@ -804,6 +849,9 @@ do_status() {
         context)    label="上下文溢出" ;;
         network)    label="网络异常" ;;
         model)      label="模型不可用" ;;
+        session-lock) label="会话锁异常" ;;
+        disk)       label="磁盘不足" ;;
+        memory)     label="内存不足" ;;
         *)          label="$key" ;;
       esac
 
