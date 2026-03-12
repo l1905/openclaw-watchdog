@@ -72,6 +72,7 @@ load_config() {
   GATEWAY_PORT="$DEFAULT_PORT"
   OPENCLAW_LOG_DIR=""
   NOTIFY_CHAT_NAME=""
+  INSTANCE_NAME=""
   if [ -f "$CONF_FILE" ]; then
     # shellcheck source=/dev/null
     . "$CONF_FILE"
@@ -86,6 +87,7 @@ FEISHU_WEBHOOK='${FEISHU_WEBHOOK}'
 GATEWAY_PORT='${GATEWAY_PORT}'
 OPENCLAW_LOG_DIR='${OPENCLAW_LOG_DIR}'
 NOTIFY_CHAT_NAME='${NOTIFY_CHAT_NAME}'
+INSTANCE_NAME='${INSTANCE_NAME}'
 EOF
 }
 
@@ -243,6 +245,10 @@ alert_once() {
   local content="$3"
   local color="${4:-red}"
 
+  if [ -n "${INSTANCE_NAME:-}" ]; then
+    title="[${INSTANCE_NAME}] ${title}"
+  fi
+
   mkdir -p "$STATE_DIR"
   local flag="$STATE_DIR/alert-${key}"
 
@@ -391,6 +397,14 @@ do_install() {
   echo ""
   read -rp "  给这个通知群起个名字（方便你记忆，比如「龙虾ICU群」）: " NOTIFY_CHAT_NAME
   NOTIFY_CHAT_NAME="${NOTIFY_CHAT_NAME:-通知群}"
+
+  # ---- 实例名称 ----
+  local default_instance
+  default_instance=$(hostname -s 2>/dev/null || hostname 2>/dev/null || echo "unknown")
+  echo ""
+  echo "  如果你有多台 OpenClaw，给这台起个名字方便区分。"
+  read -rp "  实例名称 (回车使用 ${default_instance}): " INSTANCE_NAME
+  INSTANCE_NAME="${INSTANCE_NAME:-$default_instance}"
 
   # ---- 安装文件 ----
   print_step "第 2 步：安装看门狗"
@@ -686,6 +700,7 @@ do_status() {
   fi
 
   echo "  配置信息："
+  echo "    实例名称:   ${INSTANCE_NAME:-未设置}"
   echo "    通知群:     ${NOTIFY_CHAT_NAME:-未设置}"
   if [ -n "$FEISHU_WEBHOOK" ]; then
     echo "    Webhook:    ${FEISHU_WEBHOOK:0:55}..."
@@ -794,9 +809,14 @@ do_test() {
 
   echo "  正在发送测试通知到「${NOTIFY_CHAT_NAME:-通知群}」..."
 
+  local test_title="🔔 看门狗测试通知"
+  if [ -n "${INSTANCE_NAME:-}" ]; then
+    test_title="[${INSTANCE_NAME}] ${test_title}"
+  fi
+
   if send_feishu_card \
-    "🔔 看门狗测试通知" \
-    "这是一条测试消息，说明看门狗运行正常。\n\n当前时间: $(date '+%Y-%m-%d %H:%M:%S')\n系统: ${OS_TYPE}" \
+    "$test_title" \
+    "这是一条测试消息，说明看门狗运行正常。\n\n当前时间: $(date '+%Y-%m-%d %H:%M:%S')\n实例: ${INSTANCE_NAME:-未命名}\n系统: ${OS_TYPE}" \
     "blue"; then
     print_ok "测试消息已发送，请查看飞书群"
   else
