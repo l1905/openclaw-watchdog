@@ -278,6 +278,23 @@ clear_alert() {
 # ============================================================
 do_install() {
   print_banner
+  load_config
+
+  local has_existing=false
+  if [ -n "$FEISHU_WEBHOOK" ]; then
+    has_existing=true
+    echo "  检测到已有配置："
+    echo "    实例名称: ${INSTANCE_NAME:-未设置}"
+    echo "    通知群:   ${NOTIFY_CHAT_NAME:-未设置}"
+    echo "    Webhook:  ${FEISHU_WEBHOOK:0:55}..."
+    echo "    端口:     ${GATEWAY_PORT}"
+    echo ""
+    read -rp "  是否沿用已有配置？(Y/n) " reuse
+    case "$reuse" in
+      [Nn]*) has_existing=false ;;
+    esac
+    echo ""
+  fi
 
   # ---- 检测环境 ----
   print_step "第 0 步：检测环境"
@@ -304,16 +321,22 @@ do_install() {
     print_warn "未检测到 openclaw 命令（可能安装在其他路径）"
   fi
 
-  GATEWAY_PORT=$DEFAULT_PORT
+  if [ "$has_existing" = false ]; then
+    GATEWAY_PORT=$DEFAULT_PORT
+  fi
   if curl -sf "http://127.0.0.1:$GATEWAY_PORT/healthz" > /dev/null 2>&1; then
     print_ok "Gateway 正在运行 (端口 $GATEWAY_PORT)"
   else
-    print_warn "Gateway 当前未运行或端口不是 $GATEWAY_PORT"
-    echo ""
-    echo "  如果你的 Gateway 使用了其他端口，请输入端口号。"
-    echo "  如果 Gateway 还没启动，直接回车跳过即可。"
-    read -rp "  端口号 (回车使用默认 $DEFAULT_PORT): " custom_port
-    GATEWAY_PORT="${custom_port:-$DEFAULT_PORT}"
+    if [ "$has_existing" = false ]; then
+      print_warn "Gateway 当前未运行或端口不是 $GATEWAY_PORT"
+      echo ""
+      echo "  如果你的 Gateway 使用了其他端口，请输入端口号。"
+      echo "  如果 Gateway 还没启动，直接回车跳过即可。"
+      read -rp "  端口号 (回车使用默认 $DEFAULT_PORT): " custom_port
+      GATEWAY_PORT="${custom_port:-$DEFAULT_PORT}"
+    else
+      print_warn "Gateway 当前未运行 (端口 $GATEWAY_PORT)"
+    fi
   fi
 
   local detected_log_dirs
@@ -326,85 +349,92 @@ do_install() {
   OPENCLAW_LOG_DIR="$HOME/.openclaw/logs"
 
   # ---- 飞书 Webhook ----
-  print_step "第 1 步：设置飞书通知"
+  if [ "$has_existing" = true ]; then
+    print_step "第 1 步：沿用已有飞书通知配置"
+    print_ok "Webhook: ${FEISHU_WEBHOOK:0:55}..."
+    print_ok "通知群:  ${NOTIFY_CHAT_NAME}"
+    print_ok "实例名:  ${INSTANCE_NAME}"
+  else
+    print_step "第 1 步：设置飞书通知"
 
-  echo "  看门狗会在机器人出问题时，通过飞书群通知你。"
-  echo "  你需要在飞书群里添加一个「自定义机器人」来接收通知。"
-  echo ""
-  echo -e "  ${BOLD}请按以下步骤操作：${NC}"
-  echo ""
-  echo "  ┌──────────────────────────────────────────────────┐"
-  echo "  │                                                  │"
-  echo "  │  1. 打开飞书，进入你想接收通知的群               │"
-  echo "  │                                                  │"
-  echo "  │  2. 点右上角 ··· → 设置 → 群机器人               │"
-  echo "  │                                                  │"
-  echo "  │  3. 点「添加机器人」                             │"
-  echo "  │                                                  │"
-  echo "  │  4. 选择「自定义机器人」                         │"
-  echo "  │                                                  │"
-  echo "  │  5. 名字随便填（比如填「服务监控」）             │"
-  echo "  │                                                  │"
-  echo "  │  6. 点完成后，复制弹出的 Webhook 地址            │"
-  echo "  │                                                  │"
-  echo "  └──────────────────────────────────────────────────┘"
-  echo ""
+    echo "  看门狗会在机器人出问题时，通过飞书群通知你。"
+    echo "  你需要在飞书群里添加一个「自定义机器人」来接收通知。"
+    echo ""
+    echo -e "  ${BOLD}请按以下步骤操作：${NC}"
+    echo ""
+    echo "  ┌──────────────────────────────────────────────────┐"
+    echo "  │                                                  │"
+    echo "  │  1. 打开飞书，进入你想接收通知的群               │"
+    echo "  │                                                  │"
+    echo "  │  2. 点右上角 ··· → 设置 → 群机器人               │"
+    echo "  │                                                  │"
+    echo "  │  3. 点「添加机器人」                             │"
+    echo "  │                                                  │"
+    echo "  │  4. 选择「自定义机器人」                         │"
+    echo "  │                                                  │"
+    echo "  │  5. 名字随便填（比如填「服务监控」）             │"
+    echo "  │                                                  │"
+    echo "  │  6. 点完成后，复制弹出的 Webhook 地址            │"
+    echo "  │                                                  │"
+    echo "  └──────────────────────────────────────────────────┘"
+    echo ""
 
-  FEISHU_WEBHOOK=""
-  while true; do
-    read -rp "  📋 请粘贴 Webhook 地址: " FEISHU_WEBHOOK
+    FEISHU_WEBHOOK=""
+    while true; do
+      read -rp "  📋 请粘贴 Webhook 地址: " FEISHU_WEBHOOK
 
-    if [ -z "$FEISHU_WEBHOOK" ]; then
-      echo "  地址不能为空，请重新粘贴。"
-      continue
+      if [ -z "$FEISHU_WEBHOOK" ]; then
+        echo "  地址不能为空，请重新粘贴。"
+        continue
+      fi
+
+      case "$FEISHU_WEBHOOK" in
+        https://open.feishu.cn/open-apis/bot/v2/hook/*)
+          break
+          ;;
+        https://open.larksuite.com/open-apis/bot/v2/hook/*)
+          break
+          ;;
+        *)
+          print_err "地址格式不对"
+          echo "  正确格式应该以下面的地址开头："
+          echo "    https://open.feishu.cn/open-apis/bot/v2/hook/..."
+          echo "  请重新复制粘贴。"
+          ;;
+      esac
+    done
+
+    echo ""
+    echo "  正在发送测试消息..."
+
+    if send_feishu_text "✅ OpenClaw 看门狗连接成功！从现在起，机器人出问题时会在这里通知你。"; then
+      print_ok "发送成功！请查看飞书群是否收到消息"
+    else
+      print_err "发送失败"
+      echo ""
+      echo "  可能的原因："
+      echo "    - Webhook 地址不正确"
+      echo "    - 网络无法访问飞书服务器"
+      echo ""
+      read -rp "  是否继续安装？(y/N) " yn
+      case "$yn" in
+        [Yy]*) ;;
+        *) echo "  已取消。"; exit 0 ;;
+      esac
     fi
 
-    case "$FEISHU_WEBHOOK" in
-      https://open.feishu.cn/open-apis/bot/v2/hook/*)
-        break
-        ;;
-      https://open.larksuite.com/open-apis/bot/v2/hook/*)
-        break
-        ;;
-      *)
-        print_err "地址格式不对"
-        echo "  正确格式应该以下面的地址开头："
-        echo "    https://open.feishu.cn/open-apis/bot/v2/hook/..."
-        echo "  请重新复制粘贴。"
-        ;;
-    esac
-  done
-
-  echo ""
-  echo "  正在发送测试消息..."
-
-  if send_feishu_text "✅ OpenClaw 看门狗连接成功！从现在起，机器人出问题时会在这里通知你。"; then
-    print_ok "发送成功！请查看飞书群是否收到消息"
-  else
-    print_err "发送失败"
     echo ""
-    echo "  可能的原因："
-    echo "    - Webhook 地址不正确"
-    echo "    - 网络无法访问飞书服务器"
+    read -rp "  给这个通知群起个名字（方便你记忆，比如「龙虾ICU群」）: " NOTIFY_CHAT_NAME
+    NOTIFY_CHAT_NAME="${NOTIFY_CHAT_NAME:-通知群}"
+
+    # ---- 实例名称 ----
+    local default_instance
+    default_instance=$(hostname -s 2>/dev/null || hostname 2>/dev/null || echo "unknown")
     echo ""
-    read -rp "  是否继续安装？(y/N) " yn
-    case "$yn" in
-      [Yy]*) ;;
-      *) echo "  已取消。"; exit 0 ;;
-    esac
+    echo "  如果你有多台 OpenClaw，给这台起个名字方便区分。"
+    read -rp "  实例名称 (回车使用 ${default_instance}): " INSTANCE_NAME
+    INSTANCE_NAME="${INSTANCE_NAME:-$default_instance}"
   fi
-
-  echo ""
-  read -rp "  给这个通知群起个名字（方便你记忆，比如「龙虾ICU群」）: " NOTIFY_CHAT_NAME
-  NOTIFY_CHAT_NAME="${NOTIFY_CHAT_NAME:-通知群}"
-
-  # ---- 实例名称 ----
-  local default_instance
-  default_instance=$(hostname -s 2>/dev/null || hostname 2>/dev/null || echo "unknown")
-  echo ""
-  echo "  如果你有多台 OpenClaw，给这台起个名字方便区分。"
-  read -rp "  实例名称 (回车使用 ${default_instance}): " INSTANCE_NAME
-  INSTANCE_NAME="${INSTANCE_NAME:-$default_instance}"
 
   # ---- 安装文件 ----
   print_step "第 2 步：安装看门狗"
