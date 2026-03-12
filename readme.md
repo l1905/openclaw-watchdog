@@ -28,20 +28,13 @@
 
 ## 安装（3 步，约 3 分钟）
 
-### 第 1 步：下载脚本
+### 第 1 步：一键安装
 
 ```bash
-# 进入任意目录
-curl -O https://你的地址/openclaw-watchdog.sh
+curl -O https://raw.githubusercontent.com/l1905/openclaw-watchdog/main/openclaw-watchdog.sh && bash openclaw-watchdog.sh install
 ```
 
-或者直接复制 `scripts/openclaw-watchdog.sh` 到服务器上。
-
-### 第 2 步：运行安装
-
-```bash
-bash openclaw-watchdog.sh install
-```
+或者直接复制 `openclaw-watchdog.sh` 到服务器上，然后运行 `bash openclaw-watchdog.sh install`。
 
 安装过程中，脚本会：
 1. 自动检测系统环境和 OpenClaw 运行状态
@@ -50,7 +43,7 @@ bash openclaw-watchdog.sh install
 4. 脚本会自动发一条测试消息确认连接成功
 5. 自动配置定时检查任务（每分钟检查一次）
 
-### 第 3 步：没有第 3 步
+### 第 2 步：没有第 2 步
 
 安装完成后，看门狗会自动运行。你不需要做任何其他操作。
 
